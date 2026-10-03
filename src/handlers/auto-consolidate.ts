@@ -19,7 +19,6 @@ import * as fs from "node:fs/promises";
 import * as path from "node:path";
 import { createHash } from "node:crypto";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import stripAnsi from "strip-ansi";
 import { MemoryStore } from "../store/memory-store.js";
 import { DatabaseManager } from "../store/db.js";
 import { getMemoryUsageSignals, type MemoryUsageSignal } from "../store/sqlite-memory-store.js";
@@ -34,7 +33,7 @@ import {
 } from "../constants.js";
 import type { ConsolidationResult, MemoryConfig } from "../types.js";
 import { AGENT_ROOT } from "../paths.js";
-import { execChildPrompt } from "./pi-child-process.js";
+import { cleanChildStderr, execChildPrompt } from "./pi-child-process.js";
 import { runDirectMemoryCompletion, usesDirectTransport, type DirectReviewContext } from "./review-memory-ops.js";
 import { AtomicLockCoordinator } from "../store/atomic-lock-coordinator.js";
 
@@ -159,12 +158,7 @@ function describeConsolidationFailure(
   result: { code: number; stderr?: string; killed?: boolean },
   timeoutMs: number,
 ): string {
-  const originalStderr = stripAnsi(result.stderr ?? "").trim();
-  const stderr = originalStderr
-    .split(/\r?\n/)
-    .filter((line) => !line.startsWith("Warning: No models match pattern "))
-    .join("\n")
-    .trim() || originalStderr;
+  const stderr = cleanChildStderr(result.stderr);
   const terminated = result.killed || result.code === 124 || result.code === 143;
 
   if (terminated) {
