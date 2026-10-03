@@ -386,6 +386,64 @@ describe("triggerConsolidation", () => {
     assert.ok(result.error!.includes("exit"), "error should mention exit code");
   });
 
+  describe("subprocess failure diagnostics", () => {
+    const prefix = "Consolidation process exited with code 1: ";
+    const scopeWarnings = Array.from(
+      { length: 8 },
+      (_, index) => `Warning: No models match pattern "test/model-${index}"`,
+    ).join("\n");
+
+    const cases: Array<{ name: string; stderr: string; expected: string }> = [
+      {
+        name: "reports an HTTP 402 after long model-scope warnings",
+        stderr: `${scopeWarnings}\nError: HTTP402 Credit balance is empty`,
+        expected: `${prefix}Error: HTTP402 Credit balance is empty`,
+      },
+      {
+        name: "strips ANSI codes before filtering model-scope warnings",
+        stderr: `\u001b[33mWarning: No models match pattern "test/model"\u001b[39m\n\u001b[31mError: HTTP402 Credit balance is empty\u001b[39m`,
+        expected: `${prefix}Error: HTTP402 Credit balance is empty`,
+      },
+      {
+        name: "preserves model-scope warnings when they are the only diagnostics",
+        stderr: 'Warning: No models match pattern "test/model"',
+        expected: `${prefix}Warning: No models match pattern "test/model"`,
+      },
+      {
+        name: "retains unrelated warning lines",
+        stderr: "Warning: Extension discovery used its fallback path\nError: HTTP402 Credit balance is empty",
+        expected: `${prefix}Warning: Extension discovery used its fallback path\nError: HTTP402 Credit balance is empty`,
+      },
+      {
+        name: "does not discard model-not-found errors",
+        stderr: `${scopeWarnings}\nError: Model not found`,
+        expected: `${prefix}Error: Model not found`,
+      },
+      {
+        name: "uses the unknown-error fallback for empty stderr",
+        stderr: "",
+        expected: `${prefix}unknown error`,
+      },
+      {
+        name: "bounds the cleaned diagnostic to 200 characters",
+        stderr: `Warning: No models match pattern "test/model"\nError: ${"x".repeat(250)}`,
+        expected: `${prefix}Error: ${"x".repeat(193)}`,
+      },
+    ];
+
+    for (const { name, stderr, expected } of cases) {
+      it(name, async () => {
+        const result = await triggerConsolidation(
+          createMockPi({ code: 1, stdout: "", stderr }),
+          mockStore,
+          "memory",
+        );
+        assert.strictEqual(result.consolidated, false);
+        assert.strictEqual(result.error, expected);
+      });
+    }
+  });
+
   it("surfaces timeout-style child termination clearly", async () => {
     const pi = createMockPi({ code: 143, stdout: "", stderr: "", killed: true } as any);
     const result = await triggerConsolidation(pi, mockStore, "memory", undefined, 60000);

@@ -19,6 +19,7 @@ import * as fs from "node:fs/promises";
 import * as path from "node:path";
 import { createHash } from "node:crypto";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import stripAnsi from "strip-ansi";
 import { MemoryStore } from "../store/memory-store.js";
 import { DatabaseManager } from "../store/db.js";
 import { getMemoryUsageSignals, type MemoryUsageSignal } from "../store/sqlite-memory-store.js";
@@ -158,14 +159,19 @@ function describeConsolidationFailure(
   result: { code: number; stderr?: string; killed?: boolean },
   timeoutMs: number,
 ): string {
-  const stderr = result.stderr?.trim();
+  const originalStderr = stripAnsi(result.stderr ?? "").trim();
+  const stderr = originalStderr
+    .split(/\r?\n/)
+    .filter((line) => !line.startsWith("Warning: No models match pattern "))
+    .join("\n")
+    .trim() || originalStderr;
   const terminated = result.killed || result.code === 124 || result.code === 143;
 
   if (terminated) {
     return `Consolidation subprocess was terminated (likely timeout or cancellation). Timeout: ${timeoutMs}ms. Raise consolidationTimeoutMs if consolidation legitimately needs longer.`;
   }
 
-  return `Consolidation process exited with code ${result.code}: ${stderr?.slice(0, 200) || "unknown error"}`;
+  return `Consolidation process exited with code ${result.code}: ${stderr.slice(0, 200) || "unknown error"}`;
 }
 
 function buildConsolidationPrompt(
